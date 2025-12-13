@@ -1,0 +1,13 @@
+# Data and Models
+data/
+*.pkl
+*.joblib
+mlruns/
+# Environment
+.venv/
+venv/
+# IDE and OS
+.vscode/
+.DS_Store
+# Notebooks
+.ipynb_checkpoints

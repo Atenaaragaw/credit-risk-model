@@ -1,0 +1,13 @@
+pandas
+numpy
+scikit-learn
+matplotlib
+seaborn
+jupyter
+flake8
+pytest
+mlflow
+fastapi
+uvicorn[standard]
+pydantic
+xverse # For WoE/IV
