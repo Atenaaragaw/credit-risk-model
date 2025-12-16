@@ -1,11 +1,12 @@
 pandas
 numpy
-scikit-learn
+scikit-learn>=1.4.0
 matplotlib
 seaborn
 jupyter
 flake8
 pytest
+lightgbm
 mlflow
 fastapi
 uvicorn[standard]
