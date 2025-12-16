@@ -1,0 +1,41 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - 'feature/**' # Trigger on pushes to feature branches
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build_and_test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11' # Use a stable Python version
+
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # Install dependencies including development tools (pytest, flake8)
+        pip install -r requirements.txt 
+        
+    - name: Run Code Linter (Flake8)
+      run: |
+        # Stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # Exit-zero treats all errors as warnings. The GitHub editor is 1-indexed.
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+    
+    - name: Run Unit Tests (Pytest)
+      run: |
+        # Currently, we only have stubs, but this sets up the test environment
+        pytest
