@@ -2,7 +2,6 @@ import pandas as pd
 import numpy as np
 import os
 import mlflow
-from mlflow.models import infer_signature
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
@@ -19,6 +18,15 @@ os.makedirs("mlruns", exist_ok=True)
 MLFLOW_EXPERIMENT_NAME = "Credit_Risk_Behavioral_Model"
 TARGET_COLUMN = 'is_high_risk'
 SNAPSHOT_DATE = pd.to_datetime('2019-02-05')
+
+# --- Feature Lists for consistent ordering ---
+# This ensures that when we convert X_train/X_test to a NumPy array, the columns are in a fixed order.
+# The ColumnTransformer relies on this order via indices.
+numerical_features = ['Recency', 'Frequency', 'Monetary', 'total_amount', 'avg_amount', 'std_amount', 'transaction_count']
+categorical_features = ['CurrencyCode', 'CountryCode', 'ProviderId', 'ProductId', 'ProductCategory', 'ChannelId', 'PricingStrategy']
+ALL_FEATURES_IN_ORDER = numerical_features + categorical_features
+NUMERICAL_INDICES = list(range(len(numerical_features)))
+CATEGORICAL_INDICES = list(range(len(numerical_features), len(ALL_FEATURES_IN_ORDER)))
 
 def load_data():
     """Loads raw transactions, assuming the file exists from previous steps."""
@@ -93,12 +101,12 @@ def setup_preprocessor(numerical_indices, categorical_indices):
     """Sets up the standard preprocessing pipeline using feature indices."""
 
     numerical_transformer = Pipeline(steps=[
-        # FIX (Previous step): Added with_mean=False to handle potential sparse data interaction
+        # Added with_mean=False to handle potential sparse data interaction
         ('scaler', StandardScaler(with_mean=False)) 
     ])
 
     categorical_transformer = Pipeline(steps=[
-        # FIX (New): Force OneHotEncoder to output a dense array, making the entire ColumnTransformer output dense.
+        # FIX 2: Force OneHotEncoder to output a dense array (sparse_output=False)
         ('onehot', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
     ])
 
@@ -108,7 +116,6 @@ def setup_preprocessor(numerical_indices, categorical_indices):
             ('cat', categorical_transformer, categorical_indices)
         ],
         remainder='drop'
-        # By setting sparse_output=False in OHE, the entire output of CT will be dense (NumPy array)
     )
 
     try:
@@ -140,12 +147,9 @@ def train_and_log(model_name, estimator, params, X, X_test, y_train, y_test, pre
     with mlflow.start_run(run_name=model_name) as run:
 
         # 1. Create the full pipeline (PreProcessor + Classifier)
-        # Note: 'estimator' here is either the LR or the best LGBM *Pipeline* from GridSearchCV
         if isinstance(estimator, Pipeline):
-            # This handles the LightGBM case where the best estimator from GS is already a Pipeline
             full_pipeline = estimator
         else:
-            # This handles the Logistic Regression case where we build the Pipeline
             full_pipeline = Pipeline(steps=[
                 ('preprocessor', preprocessor),
                 ('classifier', estimator)
@@ -162,16 +166,15 @@ def train_and_log(model_name, estimator, params, X, X_test, y_train, y_test, pre
         mlflow.log_params(params)
         mlflow.log_metrics(metrics)
 
-        # Handle signature inference for the dense NumPy array input
-        # We transform the data using the preprocessor outside the pipeline to get the column count for signature
-        X_transformed = full_pipeline.named_steps['preprocessor'].transform(X_test) 
-        signature = infer_signature(X_transformed, full_pipeline.predict(X_test))
-
+        # FIX 3: Removed manual signature inference (infer_signature) 
+        # as it was capturing the POST-TRANSFORMED shape (52) instead of the RAW input shape (14).
+        # We rely on mlflow.sklearn.log_model to correctly infer the signature of the input 
+        # based on the Pipeline's structure.
+        
         mlflow.sklearn.log_model(
             sk_model=full_pipeline,
             artifact_path="model",
-            signature=signature, 
-            registered_model_name=model_name
+            registered_model_name=model_name # Removed signature parameter
         )
 
         print(f"Metrics for {model_name}: {metrics}")
@@ -208,25 +211,13 @@ def main_train():
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
     print(f"\nTraining on {len(X_train)} samples, testing on {len(X_test)} samples.")
 
-    # --- FEATURE LISTS AND INDICES SETUP (Strict Ordering Fix) ---
-    numerical_features = ['Recency', 'Frequency', 'Monetary', 'total_amount', 'avg_amount', 'std_amount', 'transaction_count']
-    categorical_features = ['CurrencyCode', 'CountryCode', 'ProviderId', 'ProductId', 'ProductCategory', 'ChannelId', 'PricingStrategy']
-    
-    # Define the EXACT order of the features in the input NumPy array
-    all_features_in_order = numerical_features + categorical_features
-    
-    # Map the indices based on this explicit order 
-    numerical_indices = list(range(len(numerical_features)))
-    categorical_indices = list(range(len(numerical_features), len(all_features_in_order)))
-    # --- END FEATURE LISTS AND INDICES SETUP ---
-
     # Pass indices to the preprocessor
-    preprocessor = setup_preprocessor(numerical_indices, categorical_indices)
+    preprocessor = setup_preprocessor(NUMERICAL_INDICES, CATEGORICAL_INDICES)
     
     # --- Convert to NumPy array with STRICT column ordering ---
     # This is the data used for the LR train and Grid Search
-    X_train_np = X_train[all_features_in_order].values
-    X_test_np = X_test[all_features_in_order].values
+    X_train_np = X_train[ALL_FEATURES_IN_ORDER].values
+    X_test_np = X_test[ALL_FEATURES_IN_ORDER].values
 
     # --- 3. Baseline Model (Logistic Regression) ---
     print("\nTraining model: LR_Baseline...")
@@ -262,7 +253,6 @@ def main_train():
     grid_search.fit(X_train_np, y_train)
 
     # Extract best estimator and parameters
-    # The best_estimator_ is already a full Pipeline
     lgbm_best = grid_search.best_estimator_
     lgbm_params = {'model_type': 'LightGBM_Tuned', **grid_search.best_params_}
 
@@ -287,6 +277,7 @@ def main_train():
 
     # Register the best model
     model_uri = f"runs:/{best_model_run_id}/model"
+    # MLflow will auto-register the new version under 'Best_Credit_Risk_Model'
     mlflow.register_model(model_uri=model_uri, name="Best_Credit_Risk_Model")
 
     print(f"\nSuccessfully trained, evaluated, and logged two models.")
