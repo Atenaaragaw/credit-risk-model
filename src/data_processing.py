@@ -5,10 +5,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
 
 # --- 1. CONFIGURATION ---
-# Define the path to the raw data file
 RAW_DATA_PATH = 'data/raw/data.csv'
-
-# Define the date used for Recency calculation (must be one day after the last transaction)
 SNAPSHOT_DATE = pd.to_datetime('2019-02-05') 
 
 
@@ -21,8 +18,7 @@ def load_data(path: str = RAW_DATA_PATH) -> pd.DataFrame:
     # 1. Convert TransactionStartTime to datetime
     df['TransactionStartTime'] = pd.to_datetime(df['TransactionStartTime'], errors='coerce')
     
-    # *** FIX FOR TIMEZONE AWARENESS CONFLICT (Task 4) ***
-    # Remove timezone information (tz_localize(None)) to align with the tz-naive SNAPSHOT_DATE
+    # FIX for Timezone Awareness Conflict: Remove timezone info to align with SNAPSHOT_DATE
     df['TransactionStartTime'] = df['TransactionStartTime'].dt.tz_localize(None)
     
     # 2. Drop redundant column
@@ -38,9 +34,7 @@ def create_time_features(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 def generate_customer_aggregates(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Creates customer-level aggregated features from transaction data.
-    """
+    """Aggregates transactional data to the customer level, creating statistical features."""
     customer_features = df.groupby('CustomerId').agg(
         total_amount=('Amount', 'sum'),
         avg_amount=('Amount', 'mean'),
@@ -48,8 +42,6 @@ def generate_customer_aggregates(df: pd.DataFrame) -> pd.DataFrame:
         transaction_count=('TransactionId', 'count')
     ).reset_index()
     
-    # Handle NaN in std_amount (occurs for customers with only 1 transaction)
-    # Using .fillna(0) without inplace to avoid Pandas warnings in newer versions
     customer_features['std_amount'] = customer_features['std_amount'].fillna(0)
     
     return customer_features
@@ -61,25 +53,17 @@ def calculate_rfm(df: pd.DataFrame) -> pd.DataFrame:
     # 1. Recency: Time since last transaction
     recency_df = df.groupby('CustomerId')['TransactionStartTime'].max().reset_index()
     recency_df.columns = ['CustomerId', 'LastTransactionDate']
-    
-    # Calculate days difference between snapshot date and last transaction
     recency_df['Recency'] = (SNAPSHOT_DATE - recency_df['LastTransactionDate']).dt.days
 
-    # 2. Frequency & Monetary
+    # 2. Frequency & Monetary (uses ABSOLUTE amount for total flow of funds)
     rfm_df = df.groupby('CustomerId').agg(
-        # Frequency (F) - count of transactions
         Frequency=('TransactionId', 'count'),
-        # Monetary (M) - sum of the ABSOLUTE value of transactions (total flow of funds)
         Monetary=('Amount', lambda x: x.abs().sum())
     ).reset_index()
     
-    # Merge R with FM
     rfm_df = pd.merge(rfm_df, recency_df[['CustomerId', 'Recency']], on='CustomerId', how='inner')
     
-    # Ensure R, F, M are the final columns needed for clustering
-    rfm_df = rfm_df[['CustomerId', 'Recency', 'Frequency', 'Monetary']]
-    
-    return rfm_df
+    return rfm_df[['CustomerId', 'Recency', 'Frequency', 'Monetary']]
 
 
 def create_risk_target(df: pd.DataFrame) -> pd.DataFrame:
@@ -87,7 +71,7 @@ def create_risk_target(df: pd.DataFrame) -> pd.DataFrame:
     Creates the 'is_high_risk' binary target variable using K-Means clustering
     on the RFM features. 
     """
-    # Use Log-transformed features for clustering to handle skew and outliers
+    # Use Log-transformed features for clustering (to handle skew/outliers)
     df['LogMonetary'] = np.log1p(df['Monetary'])
     df['LogFrequency'] = np.log1p(df['Frequency'])
     
@@ -103,19 +87,11 @@ def create_risk_target(df: pd.DataFrame) -> pd.DataFrame:
     df['Cluster'] = kmeans.fit_predict(rfm_scaled)
     
     # --- Defining the High-Risk Label ---
-    
-    # Analyze clusters by their mean RFM scores:
     cluster_means = df.groupby('Cluster')[['Recency', 'Frequency', 'Monetary']].mean()
     print("\n--- RFM Cluster Analysis (Mean Scores) ---")
     print(cluster_means)
     
-    # High-Risk customers are characterized by: 
-    # High Recency (R) (last transaction long ago)
-    # Low Frequency (F) (infrequent transactions)
-    # Low Monetary (M) (low total spending)
-    
-    # Identify the 'High-Risk' cluster using a risk ranking heuristic:
-    # High R rank (Ascending=False) - Low F rank (Ascending=True) - Low M rank (Ascending=True)
+    # Identify the 'High-Risk' cluster (High R, Low F, Low M) using a risk ranking heuristic:
     risk_score = (cluster_means['Recency'].rank(ascending=False) 
                   - cluster_means['Frequency'].rank(ascending=True) 
                   - cluster_means['Monetary'].rank(ascending=True))
@@ -175,3 +151,4 @@ if __name__ == '__main__':
     processed_df = process_raw_data()
     print(processed_df.head())
     print("\n--- Target Variable Distribution ---")
+    print(processed_df['is_high_risk'].value_counts(normalize=True))
