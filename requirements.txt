@@ -11,4 +11,5 @@ mlflow
 fastapi
 uvicorn[standard]
 pydantic
+joblib
 xverse # For WoE/IV

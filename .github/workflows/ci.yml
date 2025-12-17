@@ -4,12 +4,8 @@ on:
   push:
     branches:
       - main
-      - 'feature/**' # Trigger on pushes to feature branches
-  pull_request:
-    branches:
-      - main
-
-jobs:
+      - master 
+      - feature/** jobs:
   build_and_test:
     runs-on: ubuntu-latest
     
@@ -17,25 +13,23 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python 3.10
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11' # Use a stable Python version
+        python-version: '3.10' 
 
     - name: Install Dependencies
       run: |
         python -m pip install --upgrade pip
-        # Install dependencies including development tools (pytest, flake8)
-        pip install -r requirements.txt 
+        pip install -r requirements.txt
+        sudo apt-get update
+        sudo apt-get install -y libgomp1 # Required for LightGBM on Linux
+
+    - name: 🔎 Run Code Linter (flake8)
+      run: |
+        flake8 . --count --max-line=120 --statistics
         
-    - name: Run Code Linter (Flake8)
+    - name: 🧪 Run Unit Tests (pytest)
       run: |
-        # Stop the build if there are Python syntax errors or undefined names
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Exit-zero treats all errors as warnings. The GitHub editor is 1-indexed.
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
-    
-    - name: Run Unit Tests (Pytest)
-      run: |
-        # Currently, we only have stubs, but this sets up the test environment
+        export PYTHONPATH=src
         pytest
