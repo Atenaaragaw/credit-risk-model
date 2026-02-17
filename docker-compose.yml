@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  # The FastAPI service
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: credit-risk-api:latest
+    container_name: credit-risk-service
+    ports:
+      - "8000:8000" # Map host port 8000 to container port 8000
+    environment:
+      - MLFLOW_TRACKING_URI=sqlite:///mlflow.db
+    # *** THIS LINE IS CRUCIAL AND WAS MISSING ***
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000
