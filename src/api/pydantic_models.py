@@ -1,22 +1,11 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List
 
-# Define the exact features used by the model (NOW 11)
+# Final Refactored Model for Finance Sector Reliability
 class CustomerFeatures(BaseModel):
-    Recency: int = Field(..., description="Days since last transaction.")
-    Frequency: int = Field(..., description="Total number of transactions.")
-    Monetary: float = Field(..., description="Total monetary value of transactions.")
-    transaction_count: int
-    CurrencyCode: str
-    CountryCode: str
-    ProviderId: str
-    ProductId: str
-    ProductCategory: str
-    ChannelId: str
-    PricingStrategy: int
-
-    class Config:
-        json_schema_extra = {
+    # Use ConfigDict for Pydantic V2 compatibility
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "Recency": 10,
                 "Frequency": 25,
@@ -31,8 +20,20 @@ class CustomerFeatures(BaseModel):
                 "PricingStrategy": 1
             }
         }
+    )
 
-# Define the response structure
+    Recency: int = Field(..., description="Days since last transaction.")
+    Frequency: int = Field(..., description="Total number of transactions.")
+    Monetary: float = Field(..., description="Total monetary value of transactions.")
+    transaction_count: int
+    CurrencyCode: str
+    CountryCode: str
+    ProviderId: str
+    ProductId: str
+    ProductCategory: str
+    ChannelId: str
+    PricingStrategy: int
+
 class PredictionResponse(BaseModel):
-    risk_prediction: str = Field(..., description="Predicted risk label (LOW RISK or HIGH RISK).")
-    risk_probability: float = Field(..., description="Probability of being high risk (0.0 to 1.0).")
+    risk_prediction: str
+    risk_probability: float

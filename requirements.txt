@@ -13,3 +13,4 @@ uvicorn[standard]
 pydantic
 joblib
 xverse # For WoE/IV
+shap
